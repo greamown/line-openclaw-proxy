@@ -61,8 +61,11 @@ function verifySignature(rawBody, signature) {
     .createHmac("sha256", LINE_CHANNEL_SECRET)
     .update(rawBody)
     .digest("base64");
-  // constant-time compare
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expectedBuf = Buffer.from(expected);
+  const signatureBuf = Buffer.from(signature);
+  // constant-time compare; timingSafeEqual throws if lengths differ
+  if (expectedBuf.length !== signatureBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
 async function postToOpenClaw(payload) {
@@ -150,6 +153,7 @@ app.post("/webhook/line", (req, res) => {
     // fire-and-forget
     setImmediate(async () => {
       for (const event of events) {
+        let replyToken = "";
         try {
           // Only handle text messages (extend as needed)
           if (event?.type !== "message") continue;
@@ -158,7 +162,7 @@ app.post("/webhook/line", (req, res) => {
           const text = event.message.text ?? "";
           const source = event.source ?? {};
           const userId = source.userId ?? "";
-          const replyToken = event.replyToken ?? "";
+          replyToken = event.replyToken ?? "";
 
           const messages = [];
           if (OPENCLAW_SYSTEM_PROMPT) {

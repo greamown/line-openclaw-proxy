@@ -71,7 +71,7 @@
   "gateway": {
     "port": 9383,
     "mode": "local",
-    "bind": "lan",
+    "bind": "loopback",
     "auth": {
       "mode": "password",
       "password": "your_password"
@@ -82,10 +82,6 @@
           "enabled": true
         }
       }
-    },
-    "tailscale": {
-      "mode": "funnel",
-      "resetOnExit": true
     }
   },
   "skills": {

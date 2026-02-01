@@ -2,6 +2,9 @@
 
 A lightweight proxy that receives LINE webhook events, forwards user text to OpenClaw, and replies via the LINE Reply API.
 
+## Architecture Flow
+`LINE message` ⇒ `LINE webhook` ⇒ `HTTPS (Tailscale)` ⇒ `proxy` ⇒ `OpenClaw` ⇒ `LINE reply`
+
 ## Features
 - Verifies LINE webhook `X-Line-Signature`
 - Processes events asynchronously to avoid blocking webhook responses
@@ -71,12 +74,32 @@ Set your LINE webhook URL, for example:
 `https://your-domain.com/webhook/line`
 
 ## Deployment Notes
+- Flow (ASCII diagram):
+```
+LINE message
+  |
+  v
+LINE webhook
+  |
+  v
+HTTPS (Tailscale)
+  |
+  v
+proxy
+  |
+  v
+OpenClaw
+  |
+  v
+LINE reply
+```
 - Ensure your service is reachable from LINE (public HTTPS URL is required by LINE).
 - If you use Tailscale, expose the HTTPS endpoint via Tailscale (e.g., Funnel) and use that URL for the LINE webhook.
 - If you run behind a reverse proxy, forward the raw request body so signature verification still works.
 - Use environment variables to keep secrets out of source control.
-- `docker-compose.yml` exposes port `8283` on the host.
-- When OpenClaw runs on the host, set `OPENCLAW_INGEST_URL` to `http://host.docker.internal:9383/v1/chat/completions`.
+- `docker-compose.yml` uses `network_mode: host`, so the container shares the host network.
+- When OpenClaw runs on the host and `network_mode: host` is enabled, set `OPENCLAW_INGEST_URL` to `http://127.0.0.1:9383/v1/chat/completions`.
+- `host.docker.internal` may not resolve on Linux; prefer `127.0.0.1` with `network_mode: host`.
 
 ## How to Test Locally
 - Use a public tunnel (e.g., ngrok or Cloudflare Tunnel) to expose `http://localhost:8283`.
@@ -87,3 +110,33 @@ Set your LINE webhook URL, for example:
 ## Notes
 - Only text messages are processed (`message.type === "text"`)
 - Webhook responds `200 OK` immediately; event handling is fire-and-forget
+
+## Troubleshooting
+- LINE replies with fallback text (`LINE_FAIL_TEXT`):
+  - Check logs for `event processing failed` and confirm OpenClaw is reachable.
+  - `fetch failed` usually means the proxy cannot reach `OPENCLAW_INGEST_URL`.
+- Test OpenClaw locally (should return 405 for GET; POST required):
+  - `curl -i http://127.0.0.1:9383/v1/chat/completions`
+- If you see `invalid LINE signature` in logs:
+  - Your webhook request is not from LINE or the raw body is being modified by a proxy.
+
+## Common Errors → Likely Causes
+- `invalid LINE signature` → wrong `LINE_CHANNEL_SECRET`, non-LINE test request, or proxy modifies raw body
+- `fetch failed` → proxy cannot reach `OPENCLAW_INGEST_URL` (DNS/host/port/timeout)
+- `OpenClaw ingest failed: 401/403` → missing or wrong `OPENCLAW_API_KEY`
+- `OpenClaw ingest failed: 404` → wrong `OPENCLAW_INGEST_URL` path
+- `OpenClaw timeout after ...ms` → OpenClaw slow or overloaded; increase `OPENCLAW_TIMEOUT_MS`
+- `LINE reply failed: 401/403` → wrong `LINE_CHANNEL_ACCESS_TOKEN`
+
+## Checklist (Step-by-Step)
+1) Confirm OpenClaw is reachable on the host:
+   - `curl -i http://127.0.0.1:9383/v1/chat/completions` (expects `405` for GET)
+2) Verify proxy is using the correct ingest URL:
+   - `docker exec -it line-openclaw-proxy sh -c "env | grep OPENCLAW_INGEST_URL"`
+3) Check proxy logs for errors:
+   - `docker logs --tail=200 line-openclaw-proxy`
+4) Confirm LINE webhook endpoint is reachable:
+   - `GET https://<your-domain>/healthz` should return `{"ok":true}`
+5) Verify LINE credentials:
+   - `LINE_CHANNEL_SECRET` (signature check) and `LINE_CHANNEL_ACCESS_TOKEN` (reply API)
+6) Re-test by sending a LINE message and watch for `[OK] replied` in logs.

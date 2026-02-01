@@ -1,12 +1,10 @@
 
 services:
   line-openclaw-proxy:
+    image: line-openclaw-proxy
     build: .
     container_name: line-openclaw-proxy
     restart: unless-stopped
-    ports:
-      - "8283:8283"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     env_file:
       - .env
