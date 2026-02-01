@@ -1,0 +1,9 @@
+
+services:
+  line-openclaw-proxy:
+    build: .
+    container_name: line-openclaw-proxy
+    restart: unless-stopped
+    network_mode: "host"
+    env_file:
+      - .env
