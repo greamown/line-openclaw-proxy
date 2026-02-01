@@ -38,7 +38,7 @@ docker compose up -d --build
 Create a `.env` file (or export directly). You can start from `.env.example`:
 
 ```
-PORT=3000
+PORT=8283
 LINE_CHANNEL_SECRET=...
 LINE_CHANNEL_ACCESS_TOKEN=...
 OPENCLAW_INGEST_URL=http://127.0.0.1:9383/v1/chat/completions
@@ -75,13 +75,14 @@ Set your LINE webhook URL, for example:
 - If you use Tailscale, expose the HTTPS endpoint via Tailscale (e.g., Funnel) and use that URL for the LINE webhook.
 - If you run behind a reverse proxy, forward the raw request body so signature verification still works.
 - Use environment variables to keep secrets out of source control.
-- `network_mode: "host"` is used in `docker-compose.yml`; adjust if you prefer bridged networking.
+- `docker-compose.yml` exposes port `8283` on the host.
+- When OpenClaw runs on the host, set `OPENCLAW_INGEST_URL` to `http://host.docker.internal:9383/v1/chat/completions`.
 
 ## How to Test Locally
-- Use a public tunnel (e.g., ngrok or Cloudflare Tunnel) to expose `http://localhost:3000`.
+- Use a public tunnel (e.g., ngrok or Cloudflare Tunnel) to expose `http://localhost:8283`.
 - Set the LINE webhook URL to the public HTTPS URL plus `/webhook/line`.
 - Send a text message to your LINE bot and check logs for `[OK] replied`.
-- Verify health endpoint: `GET http://localhost:3000/healthz`.
+- Verify health endpoint: `GET http://localhost:8283/healthz`.
 
 ## Notes
 - Only text messages are processed (`message.type === "text"`)
