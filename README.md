@@ -72,6 +72,7 @@ Set your LINE webhook URL, for example:
 
 ## Deployment Notes
 - Ensure your service is reachable from LINE (public HTTPS URL is required by LINE).
+- If you use Tailscale, expose the HTTPS endpoint via Tailscale (e.g., Funnel) and use that URL for the LINE webhook.
 - If you run behind a reverse proxy, forward the raw request body so signature verification still works.
 - Use environment variables to keep secrets out of source control.
 - `network_mode: "host"` is used in `docker-compose.yml`; adjust if you prefer bridged networking.
