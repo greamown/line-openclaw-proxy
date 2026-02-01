@@ -1,0 +1,108 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.1.29",
+    "lastTouchedAt": "2026-01-31T12:13:54.466Z"
+  },
+  "wizard": {
+    "lastRunAt": "2026-01-31T12:13:54.447Z",
+    "lastRunVersion": "2026.1.29",
+    "lastRunCommand": "doctor",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "openai-codex:default": {
+        "provider": "openai-codex",
+        "mode": "oauth"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openai-codex/gpt-5.2"
+      },
+      "workspace": "/home/greamown/.openclaw/workspace",
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      }
+    },
+    "list": [
+      {
+        "id": "main",
+        "name": "main",
+        "workspace": "/home/greamown/.openclaw/workspace",
+        "agentDir": "/home/greamown/.openclaw/agents/main/agent",
+        "model": "openai-codex/gpt-5.2"
+      }
+    ]
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true
+  },
+  "hooks": {
+    "enabled": true,
+    "token": "your_token",
+    "path": "/hooks",
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "command-logger": {
+          "enabled": true
+        },
+        "session-memory": {
+          "enabled": true
+        },
+        "boot-md": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "gateway": {
+    "port": 9383,
+    "mode": "local",
+    "bind": "lan",
+    "auth": {
+      "mode": "password",
+      "password": "your_password"
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    },
+    "tailscale": {
+      "mode": "funnel",
+      "resetOnExit": true
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    }
+  },
+  "channels": {
+    "line": {
+      "enabled": true
+    }
+  },
+  "plugins": {
+    "entries": {
+      "line": {
+        "enabled": true
+      }
+    }
+  }
+}
