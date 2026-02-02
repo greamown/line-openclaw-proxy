@@ -9,6 +9,7 @@ A lightweight proxy that receives LINE webhook events, forwards user text to Ope
 - Verifies LINE webhook `X-Line-Signature`
 - Processes events asynchronously to avoid blocking webhook responses
 - Supports custom system prompt / model / temperature
+- Optional LINE loading animation + push reply on timeout
 - Exposes a health check endpoint
 
 ## Requirements
@@ -50,6 +51,10 @@ OPENCLAW_MODEL=...
 OPENCLAW_TEMPERATURE=0.7
 OPENCLAW_SYSTEM_PROMPT=...
 OPENCLAW_TIMEOUT_MS=15000
+OPENCLAW_LONG_TIMEOUT_MS=60000
+LINE_LOADING_SECONDS=20
+USE_PUSH_ON_TIMEOUT=false
+LINE_PENDING_TEXT=已收到，稍後以推播回覆。
 LINE_FAIL_TEXT=System busy, please try again later.
 ```
 
@@ -64,6 +69,10 @@ LINE_FAIL_TEXT=System busy, please try again later.
 - `OPENCLAW_TEMPERATURE`: default `0.7`
 - `OPENCLAW_SYSTEM_PROMPT`: system role prompt
 - `OPENCLAW_TIMEOUT_MS`: OpenClaw timeout in ms, default `15000`
+- `OPENCLAW_LONG_TIMEOUT_MS`: long OpenClaw timeout for push flow, default `60000`
+- `LINE_LOADING_SECONDS`: LINE loading animation seconds (5-60, step 5), default `20`
+- `USE_PUSH_ON_TIMEOUT`: when `true`, reply a pending message then push final result
+- `LINE_PENDING_TEXT`: reply text used when deferring to push
 - `LINE_FAIL_TEXT`: fallback reply when OpenClaw fails
 
 ## Webhook & Endpoints
@@ -110,6 +119,8 @@ LINE reply
 ## Notes
 - Only text messages are processed (`message.type === "text"`)
 - Webhook responds `200 OK` immediately; event handling is fire-and-forget
+- If `LINE_LOADING_SECONDS` > 0, the bot starts a loading animation for the user
+- If `USE_PUSH_ON_TIMEOUT=true`, OpenClaw timeout triggers a pending reply + push
 
 ## Troubleshooting
 - LINE replies with fallback text (`LINE_FAIL_TEXT`):
@@ -126,6 +137,7 @@ LINE reply
 - `OpenClaw ingest failed: 401/403` → missing or wrong `OPENCLAW_API_KEY`
 - `OpenClaw ingest failed: 404` → wrong `OPENCLAW_INGEST_URL` path
 - `OpenClaw timeout after ...ms` → OpenClaw slow or overloaded; increase `OPENCLAW_TIMEOUT_MS`
+- `LINE push failed: 401/403` → plan does not allow push or wrong `LINE_CHANNEL_ACCESS_TOKEN`
 - `LINE reply failed: 401/403` → wrong `LINE_CHANNEL_ACCESS_TOKEN`
 
 ## Checklist (Step-by-Step)

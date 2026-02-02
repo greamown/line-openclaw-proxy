@@ -14,6 +14,10 @@ const app = express();
  * - OPENCLAW_TEMPERATURE: optional float (default 0.7)
  * - OPENCLAW_SYSTEM_PROMPT: optional system prompt
  * - OPENCLAW_TIMEOUT_MS: optional timeout in ms for OpenClaw request (default 15000)
+ * - OPENCLAW_LONG_TIMEOUT_MS: optional timeout in ms for long OpenClaw request (default 60000)
+ * - LINE_LOADING_SECONDS: optional loading animation seconds (5-60, step 5; default 20)
+ * - USE_PUSH_ON_TIMEOUT: optional boolean (default false)
+ * - LINE_PENDING_TEXT: optional reply when deferring to push
  * - LINE_FAIL_TEXT: optional fallback reply when OpenClaw fails
  */
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -25,10 +29,24 @@ const OPENCLAW_MODEL = process.env.OPENCLAW_MODEL || "";
 const OPENCLAW_TEMPERATURE = parseFloat(process.env.OPENCLAW_TEMPERATURE || "0.7");
 const OPENCLAW_SYSTEM_PROMPT = process.env.OPENCLAW_SYSTEM_PROMPT || "";
 const OPENCLAW_TIMEOUT_MS = parseInt(process.env.OPENCLAW_TIMEOUT_MS || "15000", 10);
+const OPENCLAW_LONG_TIMEOUT_MS = parseInt(
+  process.env.OPENCLAW_LONG_TIMEOUT_MS || "60000",
+  10
+);
+const LINE_LOADING_SECONDS = parseInt(
+  process.env.LINE_LOADING_SECONDS || "20",
+  10
+);
+const USE_PUSH_ON_TIMEOUT =
+  String(process.env.USE_PUSH_ON_TIMEOUT || "false").toLowerCase() === "true";
+const LINE_PENDING_TEXT =
+  process.env.LINE_PENDING_TEXT || "已收到，稍後以推播回覆。";
 const LINE_FAIL_TEXT =
   process.env.LINE_FAIL_TEXT || "系統忙碌中，請稍後再試。";
 
 const LINE_REPLY_ENDPOINT = "https://api.line.me/v2/bot/message/reply";
+const LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push";
+const LINE_LOADING_ENDPOINT = "https://api.line.me/v2/bot/chat/loading/start";
 
 if (!LINE_CHANNEL_SECRET) {
   console.error("[FATAL] LINE_CHANNEL_SECRET is required");
@@ -68,29 +86,32 @@ function verifySignature(rawBody, signature) {
   return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
-async function postToOpenClaw(payload) {
+async function postToOpenClaw(payload, timeoutMs = OPENCLAW_TIMEOUT_MS) {
   const headers = {
     "Content-Type": "application/json",
   };
   if (OPENCLAW_API_KEY) headers["Authorization"] = `Bearer ${OPENCLAW_API_KEY}`;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OPENCLAW_TIMEOUT_MS);
+  const useTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
+  const controller = useTimeout ? new AbortController() : null;
+  const timeoutId = useTimeout
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null;
   let resp;
   try {
     resp = await fetch(OPENCLAW_INGEST_URL, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
-      signal: controller.signal,
+      signal: controller?.signal,
     });
   } catch (e) {
     if (e?.name === "AbortError") {
-      throw new Error(`OpenClaw timeout after ${OPENCLAW_TIMEOUT_MS}ms`);
+      throw new Error(`OpenClaw timeout after ${timeoutMs}ms`);
     }
     throw e;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
   }
 
   if (!resp.ok) {
@@ -104,6 +125,33 @@ async function postToOpenClaw(payload) {
     data?.choices?.[0]?.text ??
     "";
   return String(text).trim();
+}
+
+function normalizeLoadingSeconds(value) {
+  const allowed = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
+  if (!Number.isFinite(value)) return 20;
+  if (allowed.includes(value)) return value;
+  return 20;
+}
+
+async function startLineLoading(chatId, seconds) {
+  if (!chatId) return;
+  const loadingSeconds = normalizeLoadingSeconds(seconds);
+  const body = { chatId, loadingSeconds };
+
+  const resp = await fetch(LINE_LOADING_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const msg = await resp.text().catch(() => "");
+    throw new Error(`LINE loading failed: ${resp.status} ${msg}`);
+  }
 }
 
 async function replyLine(replyToken, text) {
@@ -126,6 +174,32 @@ async function replyLine(replyToken, text) {
     const msg = await resp.text().catch(() => "");
     throw new Error(`LINE reply failed: ${resp.status} ${msg}`);
   }
+}
+
+async function pushLine(to, text) {
+  if (!to) return;
+  const body = {
+    to,
+    messages: [{ type: "text", text }],
+  };
+
+  const resp = await fetch(LINE_PUSH_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const msg = await resp.text().catch(() => "");
+    throw new Error(`LINE push failed: ${resp.status} ${msg}`);
+  }
+}
+
+function isTimeoutError(err) {
+  return String(err?.message || "").includes("OpenClaw timeout");
 }
 
 app.get("/healthz", (_req, res) => {
@@ -164,6 +238,12 @@ app.post("/webhook/line", (req, res) => {
           const userId = source.userId ?? "";
           replyToken = event.replyToken ?? "";
 
+          if (LINE_LOADING_SECONDS > 0 && userId) {
+            startLineLoading(userId, LINE_LOADING_SECONDS).catch((e) => {
+              console.warn("[WARN] loading animation failed:", e?.message || e);
+            });
+          }
+
           const messages = [];
           if (OPENCLAW_SYSTEM_PROMPT) {
             messages.push({
@@ -182,9 +262,39 @@ app.post("/webhook/line", (req, res) => {
             user: userId || undefined,
           };
 
-          const aiText = await postToOpenClaw(openclawPayload);
-          await replyLine(replyToken, aiText || "（沒有回覆內容）");
-          console.log(`[OK] replied to user=${userId}`);
+          try {
+            const aiText = await postToOpenClaw(openclawPayload);
+            await replyLine(replyToken, aiText || "（沒有回覆內容）");
+            console.log(`[OK] replied to user=${userId}`);
+          } catch (err) {
+            if (USE_PUSH_ON_TIMEOUT && userId && isTimeoutError(err)) {
+              await replyLine(replyToken, LINE_PENDING_TEXT);
+              console.log(`[OK] deferred to push for user=${userId}`);
+              try {
+                const aiText = await postToOpenClaw(
+                  openclawPayload,
+                  OPENCLAW_LONG_TIMEOUT_MS
+                );
+                await pushLine(userId, aiText || "（沒有回覆內容）");
+                console.log(`[OK] pushed to user=${userId}`);
+              } catch (pushErr) {
+                console.error(
+                  "[ERR] push flow failed:",
+                  pushErr?.message || pushErr
+                );
+                try {
+                  await pushLine(userId, LINE_FAIL_TEXT);
+                } catch (pushFailErr) {
+                  console.error(
+                    "[ERR] push fallback failed:",
+                    pushFailErr?.message || pushFailErr
+                  );
+                }
+              }
+            } else {
+              throw err;
+            }
+          }
         } catch (e) {
           console.error("[ERR] event processing failed:", e?.message || e);
           try {
